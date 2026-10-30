@@ -1,0 +1,64 @@
+name: Build Yamanly for Google Play
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install packages
+        run: npm ci
+
+      - name: Build the web app and sync it into Android
+        run: |
+          python3 scripts/build_www.py
+          npx cap sync android
+
+      - name: Decode signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then echo "KEYSTORE_BASE64 secret is missing"; exit 1; fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/yamanly-upload.jks"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/yamanly-upload.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed app bundle (AAB) and test APK
+        working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 1.0.${{ github.run_number }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon bundleRelease assembleRelease
+
+      - name: Upload the file for Google Play
+        uses: actions/upload-artifact@v4
+        with:
+          name: yamanly-play-bundle
+          path: android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Upload a test APK you can install on your phone
+        uses: actions/upload-artifact@v4
+        with:
+          name: yamanly-test-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
