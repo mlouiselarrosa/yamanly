@@ -1,0 +1,19 @@
+{
+  "appId": "com.yamanly.app",
+  "appName": "Yamanly",
+  "webDir": "www",
+  "backgroundColor": "#F1F5F0",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_yamanly",
+      "iconColor": "#0C6A4C"
+    },
+    "SystemBars": {
+      "insetsHandling": "native",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}
