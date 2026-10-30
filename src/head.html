@@ -145,6 +145,9 @@ textarea{min-height:90px;resize:vertical;font-size:13px}
 .seg button{flex:1 1 0;min-width:70px;padding:9px 6px;border-radius:9px;font-weight:600;font-size:14px;color:var(--muted)}
 .seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
+.daygrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.dg{min-height:40px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-weight:600;font-size:14px}
+.dg.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
 .chip{border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:14px;background:var(--bg)}
 .check{display:flex;gap:10px;align-items:flex-start;font-weight:500}
 .check input{width:22px;min-height:22px;height:22px;margin:0;accent-color:var(--brand)}

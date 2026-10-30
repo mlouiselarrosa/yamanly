@@ -51,6 +51,8 @@ function migrate(s){
     s.pay.days=f==='weekly'?[7,14,21,28]:f==='monthly'?[s.pay.day||30]:[15,30];
   }
   delete s.pay.freq;delete s.pay.day;
+  s.pay.last=s.pay.last||{};
+  if(!s.pay.amounts){s.pay.amounts={};if(s.pay.amount>0)s.pay.days.forEach(function(k){s.pay.amounts[k]=s.pay.amount})}
   return s;
 }
 function load(){try{var s=JSON.parse(store.get(KEY));if(s&&s.v===1)return migrate(s)}catch(e){}return fresh()}
@@ -76,6 +78,18 @@ function windowEnd(){
   return n;
 }
 var perMonth=function(){return Math.max(1,S.pay.days.length)};
+/* Each pay date has its own usual amount. The last real amount you logged for that date wins. */
+function payKey(ds){
+  var d=parse(ds),y=d.getFullYear(),mo=d.getMonth(),best=null,gap=99;
+  S.pay.days.forEach(function(k){if(clampDate(y,mo,k)===ds){best=k;gap=0}else if(gap>0&&Math.abs(k-d.getDate())<gap){best=k;gap=Math.abs(k-d.getDate())}});
+  return best;
+}
+function payOn(ds){
+  var k=payKey(ds);if(k==null)return +S.pay.amount||0;
+  var last=S.pay.last&&S.pay.last[k];if(last>0)return last;
+  if(S.pay.amounts)return +S.pay.amounts[k]||0;
+  return +S.pay.amount||0;
+}
 function monthly(it){
   if(it.type==='bill'||it.type==='loan')return it.amount;
   return r2((it.mode==='pct'?S.pay.amount*it.value/100:it.value)*perMonth());
@@ -135,7 +149,7 @@ function calc(amount,D,N){
   return {rows:rows,by:by,needs:nd,save:sv,R:R,cash:r2(amount-sv-nd.total+R),amount:amount,D:D,N:N};
 }
 function defaultNext(D){var n=S.pay.next;if(n&&D<=n&&daysBetween(D,n)<=3)return nextAfter(n);return nextAfter(D)}
-function upcoming(){var D=S.pay.next||today();return calc(S.pay.amount,D,nextAfter(D))}
+function upcoming(){var D=S.pay.next||today();return calc(payOn(D),D,nextAfter(D))}
 function buckets(){
   var out=[{id:'cash',name:'Cash on hand',type:'cash'},{id:'reserve',name:'Bills set aside',type:'reserve'}];
   SAVE.forEach(function(t){S.items.filter(function(i){return i.type===t}).forEach(function(i){out.push({id:i.id,name:i.name,type:i.type,it:i})})});
@@ -218,7 +232,7 @@ document.addEventListener('keydown',function(e){
 });
 var fails=0,lockedUntil=0;
 async function unlockFlow(){
-  var hasBio=!!store.get(BIOK);
+  var hasBio=false;store.del(BIOK);
   var hi=['Time to manage our riches!','Money check time, boss!','Let\'s get this bread, boss!'];
   openGate({title:hi[Math.floor(Math.random()*hi.length)],sub:'Punch in your PIN.',bio:hasBio,forgot:true});
   while(true){
@@ -516,8 +530,9 @@ function vHome(){
   h+='<div class="tiles" style="align-items:start"><div><button class="btn ghost block" data-act="spend">Add expenses</button><p class="hint">e.g. groceries, dine outs, etc</p></div><div><button class="btn ghost block" data-act="income">Add Extra Income</button><p class="hint">from your side hustles</p></div></div>';
   var ct=cartTotal();
   h+='<button class="card" data-act="groceries"><div class="rowh"><div><p class="eyebrow">Groceries (BETA)</p><p class="small muted">Scan price tags and keep a running total</p></div><span class="num h3">'+(ct?m(ct):'Open')+'</span></div></button>';
-  h+='<section class="card"><div class="rowh"><div><p class="eyebrow">'+(isDay?'Payday is here':'Next payday')+'</p><p class="h3">'+(S.pay.next?fmtDate(S.pay.next,true):'Not set')+'</p><button class="link small" data-act="changenext" style="padding:2px 0">Change date</button></div><button class="btn'+(isDay?'':' ghost')+'" data-act="gotpaid">Got paid</button></div>';
-  if(S.pay.amount>0){
+  h+='<section class="card"><div class="rowh"><div><p class="eyebrow">'+(isDay?'Payday is here':'Next payday')+'</p><p class="h3">'+(S.pay.next?fmtDate(S.pay.next,true):'Not set')+'</p>'+(S.pay.next&&payOn(S.pay.next)>0?'<p class="small muted">About '+m(payOn(S.pay.next))+'</p>':'')+'<button class="link small" data-act="changenext" style="padding:2px 0">Change date</button></div><button class="btn'+(isDay?'':' ghost')+'" data-act="gotpaid">Got paid</button></div>';
+  var nextAmt=payOn(S.pay.next||today());
+  if(nextAmt>0){
     var P=upcoming();
     h+='<div style="margin:12px 0 10px">'+splitBar(P)+'</div>'+
       '';
@@ -573,7 +588,8 @@ function daysChips(days){return days.map(function(d){return ord(d)}).join(', ')}
 function vPlan(){
   var P=upcoming();
   var h='<p class="note soft"><b>Set up one time.</b> Yamanly does the math every payday, so you never have to redo this. Easy.</p>';
-  h+='<section class="card"><div class="rowh"><div><p class="eyebrow">Your pay</p><p class="h3 num">'+m(S.pay.amount)+'</p><p class="small muted">Paid on the '+daysChips(S.pay.days.slice().sort(function(a,b){return a-b}))+' of the month</p></div><button class="btn ghost sm" data-act="editpay">Edit</button></div></section>';
+  var payRows=S.pay.days.slice().sort(function(a,b){return a-b}).map(function(k){var a=S.pay.amounts&&S.pay.amounts[k];return '<div class="lg"><span class="nm">Paid on the '+ord(k)+'</span><span class="am">'+(a>0?m(a):'Varies')+'</span></div>'}).join('');
+  h+='<section class="card"><div class="rowh"><div><p class="eyebrow">Your pay</p><p class="small muted">Usual take-home for each pay date. You type the real amount when you log a payday.</p></div><button class="btn ghost sm" data-act="editpay">Edit</button></div><div class="legend" style="margin-top:10px">'+payRows+'</div></section>';
   h+='<section class="card"><h2>Payday on '+fmtDate(P.D)+'</h2><p class="small muted">Bills and loans due before '+fmtDate(P.N)+' are taken out in full on this payday. This changes each payday because bills fall on different dates.</p><div style="margin:12px 0 4px">'+splitBar(P)+'</div><div class="legend">';
   ['bill','loan','tithe','saving','invest','emergency'].forEach(function(t){
     if(P.by[t]>0){
@@ -728,21 +744,32 @@ function itemSheet(type,id){
   if(it)h+='<button class="link bad" data-act="delitem" data-id="'+id+'">Delete</button>';
   openSheet(h);
 }
-var editDays=[];
-function chipsHtml(){return editDays.length?editDays.map(function(d){return '<span class="chip">'+ord(d)+'<button type="button" data-act="rmday" data-d="'+d+'" aria-label="Remove '+ord(d)+'">&times;</button></span>'}).join(''):'<span class="small muted">No dates yet</span>'}
+var editDays=[],editAmts={};
+function collectAmts(){editDays.forEach(function(d){var el=document.getElementById('f-pa-'+d);if(el)editAmts[d]=el.value})}
+function chipsHtml(){
+  collectAmts();
+  var sel=editDays.length?editDays.map(ord).join(', '):'none yet',h='<p class="small muted" style="margin-bottom:8px">Selected: <b>'+sel+'</b></p><div class="daygrid">';
+  for(var d=1;d<=31;d++){var on=editDays.indexOf(d)>=0;h+='<button type="button" class="dg'+(on?' on':'')+'" data-act="toggleday" data-d="'+d+'" aria-pressed="'+on+'">'+d+'</button>'}
+  h+='</div>';
+  if(editDays.length){
+    h+='<p style="font-weight:600;font-size:14px;margin:14px 0 2px">Usual take-home for each date</p><p class="small muted" style="margin-bottom:6px">After deductions. A guess is fine. You type the real amount when you log a payday. Leave it blank if it changes a lot.</p>';
+    editDays.forEach(function(d){h+=amtField('f-pa-'+d,'Paid on the '+ord(d),editAmts[d]==null?'':editAmts[d])});
+  }
+  return h;
+}
 function paySheet(first){
-  editDays=S.pay.days.slice().sort(function(a,b){return a-b});
-  return '<h2>'+(first?'Your pay':'Edit your pay')+'</h2>'+amtField('f-pay','Pay each payday',S.pay.amount||'','Before anything is set aside')+
-    '<div><p style="font-weight:600;font-size:14px;margin-bottom:6px">Which dates are you paid each month?</p><div class="chips" id="days">'+chipsHtml()+'</div>'+
-    '<div style="display:flex;gap:8px;margin-top:10px"><input id="f-day" inputmode="numeric" placeholder="Day, e.g. 15" aria-label="Pay date, day of the month"><button type="button" class="btn ghost" data-act="adddate">Add</button></div>'+
+  editDays=S.pay.days.slice().sort(function(a,b){return a-b});editAmts={};
+  editDays.forEach(function(d){var a=S.pay.amounts&&S.pay.amounts[d];if(a>0)editAmts[d]=a;else if(!S.pay.amounts&&S.pay.amount>0)editAmts[d]=S.pay.amount});
+  return '<h2>'+(first?'Your pay':'Edit your pay')+'</h2>'+
+    '<div><p style="font-weight:600;font-size:14px;margin-bottom:2px">Which dates are you paid each month?</p><p class="small muted" style="margin-bottom:8px">Tap every day you get paid. Tap again to remove it. Your pay can be different on each date.</p><div id="days">'+chipsHtml()+'</div>'+
     '<div class="chips" style="margin-top:10px"><button type="button" class="chip" data-act="preset" data-v="15,30">15th and 30th</button><button type="button" class="chip" data-act="preset" data-v="30">Once a month</button><button type="button" class="chip" data-act="preset" data-v="7,14,21,28">Weekly</button></div>'+
-    '<p class="small muted" style="margin-top:8px">Pay dates move around, so you can change the next payday any time. Yamanly asks again when you log a payday.</p></div>'+
+    '<p class="small muted" style="margin-top:8px">If you pick the 29th to 31st, shorter months use their last day. Pay dates move around, so you can change the next payday any time. Yamanly asks again when you log a payday.</p></div>'+
     '<div class="err" id="err"></div><button class="btn block" data-act="savepay">'+(first?'Continue':'Save')+'</button>';
 }
-var pdTouched=false;
+var pdTouched=false,pdAmtTouched=false;
 function paydaySheet(){
-  var D=today(),N=defaultNext(D);pdTouched=false;
-  var h='<h2>Got paid</h2><p class="muted">One tap puts the money into each bucket and sets aside every bill due before your next payday.</p>'+amtField('f-pdamt','Amount received',S.pay.amount||'')+
+  var D=today(),N=defaultNext(D);pdTouched=false;pdAmtTouched=false;
+  var h='<h2>Got paid</h2><p class="muted">One tap puts the money into each bucket and sets aside every bill due before your next payday.</p>'+amtField('f-pdamt','Amount received',payOn(D)||'','What actually came in after deductions')+
     '<label class="f">Payday date<input id="f-pddate" type="date" value="'+D+'"></label>'+
     '<label class="f">Next payday <small>Change it if it is not the usual date</small><input id="f-pdnext" type="date" value="'+N+'"></label><div id="pdprev"></div><div class="err" id="err"></div><button class="btn block" data-act="confirmpayday">Add to my buckets</button>';
   openSheet(h);updatePdPrev();
@@ -803,7 +830,7 @@ function settingsSheet(){
   (S.settings.notify?'<div>'+seg('f-lead',[['0','On the day'],['1','1 day before'],['3','3 days before']],String(S.settings.lead))+'</div><label class="f">Remind me at<input id="f-time" type="time" value="'+esc(S.settings.time)+'"></label><button class="btn ghost block" data-act="testnotif">Send a test reminder</button><p class="small muted" id="notifStatus">'+notifStatusText()+'</p>':'')+
   '<button class="btn ghost block" data-act="profile">Your details</button>'+
   '<button class="btn ghost block" data-act="changepin">Change PIN</button>'+
-  '<button class="btn ghost block" data-act="bio">'+(bio?'Turn off fingerprint or face unlock':'Turn on fingerprint or face unlock')+'</button><p class="err" id="err"></p>'+
+  '<p class="err" id="err"></p>'+
   '<button class="btn ghost block" data-act="backup">Back up or restore</button>'+
   '<button class="btn ghost block" data-act="locknow">Lock now</button>'+
   '<button class="btn danger block" data-act="reset">Erase everything</button>'+
@@ -936,7 +963,7 @@ var act={
     ui.arm=null;undoEntry(el.dataset.id);render();toast('Entry removed and balances restored');
   },
   gotpaid:function(){
-    if(!S.pay.amount){toast('Set your pay first in Plan');ui.tab='plan';render();return}
+    if(!S.pay.days.length){toast('Set your pay dates first in Plan');ui.tab='plan';render();return}
     paydaySheet();
   },
   confirmpayday:function(){
@@ -948,8 +975,9 @@ var act={
     P.rows.forEach(function(r){if(r.pp)dd[r.it.id]=r.pp});
     dd.cash=P.cash;
     var e=addEntry({t:'payday',amount:a,date:D,d:dd});
+    var pk=payKey(D),prevLast=S.pay.last&&S.pay.last[pk];S.pay.last=S.pay.last||{};if(pk!=null)S.pay.last[pk]=a;
     var prevNext=S.pay.next;S.pay.next=N;save();closeSheet();render();
-    toast('Payday logged. Let\'s grow it! Next is '+fmtDate(N),function(){undoEntry(e.id);S.pay.next=prevNext;save();render()});
+    toast('Payday logged. Let\'s grow it! Next is '+fmtDate(N),function(){undoEntry(e.id);S.pay.next=prevNext;if(pk!=null){if(prevLast>0)S.pay.last[pk]=prevLast;else delete S.pay.last[pk]}save();render()});
   },
   changenext:function(){
     openSheet('<h2>Next payday</h2><p class="muted">Pay dates move. Set the one that is coming.</p><label class="f">Date<input id="f-next" type="date" value="'+(S.pay.next||today())+'"></label><div class="err" id="err"></div><button class="btn block" data-act="savenext">Save</button>');
@@ -1010,19 +1038,24 @@ var act={
     toast((it?it.name:'Item')+' deleted'+(v>0?'. '+m(v)+' moved to cash on hand.':''));
   },
   editpay:function(){openSheet(paySheet(false))},
-  adddate:function(){
-    var n=Math.round(num(gv('f-day')));if(n<1||n>31)return setErr('Use a day from 1 to 31.');
-    setErr('');if(editDays.indexOf(n)<0)editDays.push(n);editDays.sort(function(a,b){return a-b});
-    document.getElementById('days').innerHTML=chipsHtml();document.getElementById('f-day').value='';
+  toggleday:function(el){
+    var n=+el.dataset.d,k=editDays.indexOf(n);
+    if(k>=0)editDays.splice(k,1);else editDays.push(n);
+    editDays.sort(function(a,b){return a-b});setErr('');
+    document.getElementById('days').innerHTML=chipsHtml();
   },
-  rmday:function(el){editDays=editDays.filter(function(d){return d!==+el.dataset.d});document.getElementById('days').innerHTML=chipsHtml()},
   preset:function(el){editDays=el.dataset.v.split(',').map(Number);document.getElementById('days').innerHTML=chipsHtml()},
   savepay:function(){
-    var a=r2(num(gv('f-pay')));
-    if(a<=0)return setErr('Enter how much you get paid.');
-    if(!editDays.length)return setErr('Add at least one pay date.');
+    collectAmts();
+    if(!editDays.length)return setErr('Tap at least one pay date.');
+    var amts={},vals=[];
+    editDays.forEach(function(d){var a=r2(num(editAmts[d]));if(a>0){amts[d]=a;vals.push(a)}});
     var changed=JSON.stringify(editDays)!==JSON.stringify(S.pay.days.slice().sort(function(x,y){return x-y}));
-    S.pay.amount=a;S.pay.days=editDays.slice();
+    var prevAmts=S.pay.amounts||{};
+    S.pay.days=editDays.slice();S.pay.amounts=amts;S.pay.last=S.pay.last||{};
+    editDays.forEach(function(d){if((prevAmts[d]||0)!==(amts[d]||0))delete S.pay.last[d]});
+    Object.keys(S.pay.last).forEach(function(k){if(editDays.indexOf(+k)<0)delete S.pay.last[k]});
+    S.pay.amount=vals.length?r2(vals.reduce(function(a,b){return a+b},0)/vals.length):0;
     if(changed||!S.pay.next)S.pay.next=nextOnOrAfter(today(),S.pay.days);
     var first=!S.ready;S.ready=true;save();closeSheet();
     if(first){ui.tab='plan';showMain();toast('Now add your bills, loans and savings. You got this!')}else render();
@@ -1103,7 +1136,8 @@ document.addEventListener('click',function(e){
 var pdIds={'f-pdamt':1,'f-pddate':1,'f-pdnext':1};
 function onPd(e){
   var id=e.target&&e.target.id;if(!pdIds[id])return;
-  if(id==='f-pddate'&&e.target.value){var n=document.getElementById('f-pdnext');if(n)n.value=defaultNext(e.target.value)}
+  if(id==='f-pdamt')pdAmtTouched=true;
+  if(id==='f-pddate'&&e.target.value){var n=document.getElementById('f-pdnext');if(n)n.value=defaultNext(e.target.value);var am=document.getElementById('f-pdamt');if(am&&!pdAmtTouched){var pv=payOn(e.target.value);am.value=pv>0?pv:''}}
   updatePdPrev();
 }
 document.addEventListener('input',onPd);document.addEventListener('change',function(e){onPd(e);if(e.target&&(e.target.id==='scanFile'||e.target.id==='scanPick')){var f=e.target.files&&e.target.files[0];e.target.value='';doScan(f);return}if(e.target&&e.target.id==='f-time'&&e.target.value){S.settings.time=e.target.value;save()}});
@@ -1130,7 +1164,7 @@ function onboardPay(){
 function loadSample(){
   var cur=today(),mk=cur.slice(0,7);
   S=fresh();S.ready=true;S.sample=true;
-  S.pay={amount:15000,days:[15,30],next:nextOnOrAfter(cur,[15,30])};
+  S.pay={amount:15000,days:[15,30],amounts:{15:15000,30:17500},last:{},next:nextOnOrAfter(cur,[15,30])};
   var mk_=function(type,name,o){var it=Object.assign({id:uid(),type:type,name:name,start:mk},o);S.items.push(it);return it};
   mk_('bill','Rent',{amount:6500,due:5});mk_('bill','Meralco',{amount:2400,due:12});mk_('bill','Converge internet',{amount:1699,due:20});mk_('bill','Phone plan',{amount:799,due:18});
   mk_('loan','SSS salary loan',{amount:1200,balance:14400,due:30});mk_('loan','Phone installment',{amount:1850,balance:11100,due:25});
