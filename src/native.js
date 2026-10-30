@@ -36,9 +36,14 @@
   N.bio={
     available:async function(){try{var r=await BIO.checkBiometry();return !!r.isAvailable}catch(e){return false}},
     setup:async function(){
-      if(!BIO)throw new Error('unsupported');
-      var r=await BIO.checkBiometry();if(!r.isAvailable)throw new Error('none');
-      await BIO.authenticate({reason:'Turn on fingerprint or face unlock',cancelTitle:'Cancel',allowDeviceCredential:false,androidTitle:'Yamanly',androidSubtitle:'Confirm it is you'});
+      if(!BIO)throw new Error('Fingerprint unlock is not available in this version.');
+      var r;try{r=await BIO.checkBiometry()}catch(e){throw new Error('Could not reach the fingerprint sensor. Please try again.')}
+      if(!r.isAvailable){
+        var why=String(r.code||r.reason||'');
+        throw new Error(/NotEnrolled|biometryNotEnrolled/i.test(why)?'No fingerprint or face is saved on this phone yet. Add one in your phone Settings under Security, then try again.':/NotAvailable|biometryNotAvailable|none/i.test(why)?'This phone does not support fingerprint or face unlock.':'Fingerprint or face unlock is not ready on this phone. Check your phone Settings under Security.');
+      }
+      try{await BIO.authenticate({reason:'Turn on fingerprint or face unlock',cancelTitle:'Cancel',allowDeviceCredential:false,androidTitle:'Yamanly',androidSubtitle:'Confirm it is you'})}
+      catch(e){var c=String((e&&(e.code||e.message))||'');throw new Error(/cancel/i.test(c)?'Cancelled. Nothing was changed.':/lockout/i.test(c)?'Too many tries. Wait a bit, then try again.':'That did not work. Please try again.')}
     },
     auth:async function(){
       try{await BIO.authenticate({reason:'Unlock Yamanly',cancelTitle:'Use PIN',allowDeviceCredential:false,androidTitle:'Yamanly',androidSubtitle:'Unlock with fingerprint or face'});return true}catch(e){return false}

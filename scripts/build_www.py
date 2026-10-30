@@ -22,6 +22,7 @@ app=rep(app,"  var dl=null;\n","  if(window.NATIVE){try{await NATIVE.savePdf(nam
 app=rep(app,"function save(){store.set(KEY,JSON.stringify(S))}","function save(){store.set(KEY,JSON.stringify(S));if(window.NATIVE)NATIVE.sync()}")
 app=rep(app,"BETA. The photo goes to Claude only to read the tag. Nothing is saved. Always check the price it reads.","BETA. The tag is read on your phone, nothing is uploaded or saved. Always check the price it reads.")
 app=rep(app,"scanFail('Scanning needs your OK to use Claude. You can still type items in.')","scanFail('Scanning needs camera access. Allow it in your phone settings, or type items in.')")
+app=rep(app,"catch(e){setErr('This device or preview cannot set that up here. It works once Yamanly is installed on your phone. Your PIN works everywhere.')}","catch(e){var bm=(window.NATIVE&&e&&e.message)?e.message:'This device or preview cannot set that up here. It works once Yamanly is installed on your phone. Your PIN works everywhere.';setErr(bm);toast(bm)}")
 # scheduled reminders + back button hook, placed right before showNative
 hook='''function upcomingReminders(){
   var out=[],cur=today(),lead=+S.settings.lead||0;
