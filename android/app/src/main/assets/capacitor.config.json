@@ -1,0 +1,17 @@
+{
+	"appId": "com.yamanly.app",
+	"appName": "Yamanly",
+	"webDir": "www",
+	"android": {
+		"allowMixedContent": false
+	},
+	"plugins": {
+		"LocalNotifications": {
+			"smallIcon": "ic_stat_yamanly",
+			"iconColor": "#0C6A4C"
+		},
+		"StatusBar": {
+			"overlaysWebView": false
+		}
+	}
+}
