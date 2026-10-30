@@ -30,6 +30,7 @@ jobs:
       - name: Build the web app and sync it into Android
         run: |
           python3 scripts/build_www.py
+          npx capacitor-assets generate --android --iconBackgroundColor '#2A5A2A' --splashBackgroundColor '#2F5A2A'
           npx cap sync android
 
       - name: Decode signing key
